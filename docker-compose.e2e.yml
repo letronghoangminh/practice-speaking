@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: practice_speaking_e2e
+    ports:
+      - "15433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d practice_speaking_e2e"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "16380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      API_PORT: 8088
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/practice_speaking_e2e?sslmode=disable
+      REDIS_ADDR: redis:6379
+      ALLOWED_ORIGINS: http://localhost:13001
+      OPENAI_API_KEY: ""
+      OPENAI_TEXT_MODEL: gpt-5.4-mini
+      OPENAI_STT_MODEL: gpt-4o-mini-transcribe
+      OPENAI_TTS_MODEL: gpt-4o-mini-tts
+      OPENAI_TTS_VOICE: marin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "18081:8088"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:18081/api/v1
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:18081/api/v1
+    depends_on:
+      - api
+    ports:
+      - "13001:3000"

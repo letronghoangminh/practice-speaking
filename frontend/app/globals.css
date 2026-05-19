@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+@layer components {
+  .surface {
+    @apply rounded-lg border border-black/10 bg-white/[0.86] p-5 shadow-soft backdrop-blur;
+  }
+
+  .workspace {
+    @apply min-h-[calc(100vh-48px)] rounded-lg border border-black/10 bg-white/70 p-5 shadow-soft backdrop-blur lg:p-7;
+  }
+
+  .label {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-steel;
+  }
+
+  .muted {
+    @apply text-sm text-steel;
+  }
+
+  .segmented {
+    @apply grid grid-cols-2 rounded-lg bg-mist p-1;
+  }
+
+  .segment,
+  .segment-active {
+    @apply flex min-h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition;
+  }
+
+  .segment {
+    @apply text-steel hover:bg-white/70;
+  }
+
+  .segment-active {
+    @apply bg-white text-ink shadow-sm;
+  }
+
+  .field {
+    @apply w-full resize-y rounded-md border border-black/10 bg-white px-3 py-3 text-sm outline-none transition placeholder:text-steel/70 focus:border-ocean focus:ring-4 focus:ring-ocean/10;
+  }
+
+  .file-input {
+    @apply flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-dashed border-ocean/40 bg-ocean/5 px-3 text-sm font-medium text-ink transition hover:bg-ocean/10;
+  }
+
+  .primary,
+  .secondary,
+  .record,
+  .stop {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-55;
+  }
+
+  .primary {
+    @apply bg-ink text-white hover:bg-ink/90;
+  }
+
+  .secondary {
+    @apply border border-black/10 bg-white text-ink hover:border-ocean/40 hover:text-ocean;
+  }
+
+  .record {
+    @apply bg-ocean text-white hover:bg-ocean/90;
+  }
+
+  .stop {
+    @apply bg-clay text-white hover:bg-clay/90;
+  }
+
+  .icon-button {
+    @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-black/10 bg-white text-ocean transition hover:border-ocean/50;
+  }
+
+  .history-row {
+    @apply grid w-full grid-cols-[1fr_auto_44px] items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-3 text-left text-sm transition hover:border-ocean/40 hover:bg-ocean/5;
+  }
+
+  .status-active,
+  .status-done,
+  .pill-active,
+  .pill-done,
+  .score,
+  .timer {
+    @apply inline-flex min-h-8 items-center justify-center gap-1 rounded-md px-2.5 text-xs font-semibold;
+  }
+
+  .status-active,
+  .pill-active,
+  .timer {
+    @apply bg-ocean/10 text-ocean;
+  }
+
+  .status-done,
+  .pill-done {
+    @apply bg-moss/10 text-moss;
+  }
+
+  .score {
+    @apply bg-ink text-white;
+  }
+
+  .session-bar {
+    @apply flex flex-col justify-between gap-4 rounded-lg border border-black/10 bg-white p-5 md:flex-row md:items-center;
+  }
+
+  .question-panel {
+    @apply rounded-lg bg-ink p-5 text-white shadow-soft lg:p-7;
+  }
+
+  .question-panel .label {
+    @apply text-white/70;
+  }
+
+  .question-panel .field {
+    @apply border-white/15 bg-white/95 text-ink;
+  }
+
+  .error {
+    @apply flex items-center gap-2 rounded-md border border-clay/20 bg-clay/10 px-4 py-3 text-sm font-medium text-clay;
+  }
+
+  .empty {
+    @apply flex min-h-[70vh] flex-col items-start justify-center gap-4 px-2;
+  }
+
+  .topic-row {
+    @apply flex min-h-20 items-center justify-between gap-3 rounded-md border border-black/10 bg-mist/60 px-4;
+  }
+
+  .feedback-list {
+    @apply rounded-md border border-black/10 bg-mist/60 p-4;
+  }
+
+  .report {
+    @apply rounded-lg border border-moss/20 bg-white p-5 shadow-soft lg:p-7;
+  }
+
+  .answer-detail {
+    @apply rounded-md border border-black/10 bg-mist/60 p-4;
+  }
+
+  .answer-detail summary {
+    @apply cursor-pointer font-semibold;
+  }
+
+  .modal-backdrop {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-ink/55 p-4 backdrop-blur-sm;
+  }
+
+  .qa-modal {
+    @apply max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg border border-black/10 bg-white p-5 shadow-soft lg:p-7;
+  }
+}

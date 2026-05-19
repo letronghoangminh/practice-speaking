@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: practice_speaking
+    ports:
+      - "15432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d practice_speaking"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "16379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    environment:
+      API_PORT: 8088
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/practice_speaking?sslmode=disable
+      REDIS_ADDR: redis:6379
+      ALLOWED_ORIGINS: http://localhost:3000,http://localhost:13000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "18080:8088"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:18080/api/v1
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:18080/api/v1
+    depends_on:
+      - api
+    ports:
+      - "13000:3000"
+
+volumes:
+  postgres-data:
+  redis-data:
