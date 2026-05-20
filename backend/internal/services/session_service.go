@@ -52,11 +52,11 @@ func (s *SessionService) CreateSession(ctx context.Context, input CreateSessionI
 		return SessionEnvelope{}, validationError("mode must be %q or %q", models.SessionModeInterview, models.SessionModePractice)
 	}
 
-	jdText, err := ExtractUploadText(input.JDFile, input.JDText)
+	jdText, err := ExtractJDUploadText(ctx, s.ai, input.JDFile, input.JDText)
 	if err != nil {
 		return SessionEnvelope{}, validationError("JD file: %s", err.Error())
 	}
-	cvText, err := ExtractUploadText(input.CVFile, input.CVText)
+	cvText, err := ExtractCVUploadText(ctx, input.CVFile, input.CVText)
 	if err != nil {
 		return SessionEnvelope{}, validationError("CV file: %s", err.Error())
 	}

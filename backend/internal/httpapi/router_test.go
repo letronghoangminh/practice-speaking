@@ -41,6 +41,10 @@ func (apiFakeAI) GenerateFinalReport(ctx context.Context, input services.FinalRe
 	return services.FinalReport{Summary: "ok", TechnicalScore: 80, EnglishScore: 80, OverallScore: 80}, nil
 }
 
+func (apiFakeAI) ExtractImageText(ctx context.Context, fileName string, contentType string, image []byte) (string, error) {
+	return "Extracted JD image text for a DevOps role.", nil
+}
+
 func (apiFakeAI) Transcribe(ctx context.Context, fileName string, contentType string, audio []byte) (string, error) {
 	return "answer", nil
 }

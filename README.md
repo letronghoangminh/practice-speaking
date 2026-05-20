@@ -6,8 +6,8 @@ A local single-user application for practicing English technical interviews for 
 
 - Backend: Go, Gin, GORM, PostgreSQL, Redis
 - Frontend: Next.js, Tailwind CSS, lucide-react
-- AI: OpenAI Responses API, speech-to-text, and text-to-speech
-- Default cost-conscious models: `gpt-5.4-mini`, `gpt-4o-mini-transcribe`, and `gpt-4o-mini-tts`
+- AI: OpenAI Responses API, JD image text extraction, speech-to-text, and text-to-speech
+- Default cost-conscious models: `gpt-5.4-mini`, `gpt-4o-mini` for JD image extraction, `gpt-4o-mini-transcribe`, and `gpt-4o-mini-tts`
 
 ## Quick Start
 
@@ -30,6 +30,8 @@ A local single-user application for practicing English technical interviews for 
 The backend is available at [http://localhost:18080/api/v1](http://localhost:18080/api/v1).
 
 If `OPENAI_API_KEY` is empty, the API runs with deterministic local fallbacks so the app can still be explored.
+
+Interview uploads support JD files as `.txt`, `.md`, `.pdf`, `.png`, `.jpg`, `.jpeg`, or `.webp`; CV uploads support `.md` and `.pdf`.
 
 ## Local Development
 

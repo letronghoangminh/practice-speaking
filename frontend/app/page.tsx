@@ -273,14 +273,26 @@ export default function Home() {
 
               {mode === "interview" && (
                 <div className="space-y-3">
-                  <FileInput label="Job description" file={jdFile} onChange={setJdFile} testId="jd-file" />
+                  <FileInput
+                    label="Job description"
+                    file={jdFile}
+                    onChange={setJdFile}
+                    testId="jd-file"
+                    accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                  />
                   <textarea
                     className="field min-h-24"
                     value={jdText}
                     onChange={(event) => setJdText(event.target.value)}
                     placeholder="Paste JD text"
                   />
-                  <FileInput label="Your CV" file={cvFile} onChange={setCvFile} testId="cv-file" />
+                  <FileInput
+                    label="Your CV"
+                    file={cvFile}
+                    onChange={setCvFile}
+                    testId="cv-file"
+                    accept=".md,.pdf"
+                  />
                   <textarea
                     className="field min-h-24"
                     value={cvText}
@@ -436,11 +448,13 @@ function FileInput({
   file,
   onChange,
   testId,
+  accept,
 }: {
   label: string;
   file: File | null;
   onChange: (file: File | null) => void;
   testId: string;
+  accept: string;
 }) {
   return (
     <label className="file-input">
@@ -450,7 +464,7 @@ function FileInput({
         className="sr-only"
         type="file"
         data-testid={testId}
-        accept=".pdf,.txt,.md"
+        accept={accept}
         onChange={(event) => onChange(event.target.files?.[0] ?? null)}
       />
     </label>

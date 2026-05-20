@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,13 +20,14 @@ import (
 )
 
 type OpenAIClient struct {
-	apiKey    string
-	baseURL   string
-	textModel string
-	sttModel  string
-	ttsModel  string
-	ttsVoice  string
-	client    *http.Client
+	apiKey      string
+	baseURL     string
+	textModel   string
+	visionModel string
+	sttModel    string
+	ttsModel    string
+	ttsVoice    string
+	client      *http.Client
 }
 
 func NewOpenAIClient(cfg config.Config) *OpenAIClient {
@@ -35,13 +37,14 @@ func NewOpenAIClient(cfg config.Config) *OpenAIClient {
 	}
 
 	return &OpenAIClient{
-		apiKey:    cfg.OpenAIAPIKey,
-		baseURL:   strings.TrimRight(cfg.OpenAIBaseURL, "/"),
-		textModel: cfg.OpenAITextModel,
-		sttModel:  cfg.OpenAISTTModel,
-		ttsModel:  cfg.OpenAITTSModel,
-		ttsVoice:  cfg.OpenAITTSVoice,
-		client:    &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
+		apiKey:      cfg.OpenAIAPIKey,
+		baseURL:     strings.TrimRight(cfg.OpenAIBaseURL, "/"),
+		textModel:   cfg.OpenAITextModel,
+		visionModel: cfg.OpenAIVisionModel,
+		sttModel:    cfg.OpenAISTTModel,
+		ttsModel:    cfg.OpenAITTSModel,
+		ttsVoice:    cfg.OpenAITTSVoice,
+		client:      &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
 	}
 }
 
@@ -98,6 +101,70 @@ func (c *OpenAIClient) GenerateFinalReport(ctx context.Context, input FinalRepor
 		report.Summary = fallback.Summary
 	}
 	return report, nil
+}
+
+func (c *OpenAIClient) ExtractImageText(ctx context.Context, fileName string, contentType string, image []byte) (string, error) {
+	if c.apiKey == "" {
+		return "Local fallback extracted JD image text: DevOps role requiring Kubernetes, Terraform, CI/CD, observability, incident response, and cloud operations experience.", nil
+	}
+
+	contentType = strings.TrimSpace(contentType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	model := strings.TrimSpace(c.visionModel)
+	if model == "" {
+		model = c.textModel
+	}
+
+	payload := map[string]any{
+		"model": model,
+		"input": []map[string]any{
+			{
+				"role": "user",
+				"content": []map[string]string{
+					{
+						"type": "input_text",
+						"text": fmt.Sprintf("Extract the readable job description text from this image file named %s. Return only plain text. Preserve role title, responsibilities, requirements, technologies, and qualifications. If text is unclear, include the best readable reconstruction without inventing details.", fileName),
+					},
+					{
+						"type":      "input_image",
+						"image_url": "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(image),
+					},
+				},
+			},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/responses", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	c.authorize(req)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return "", apiError("extract image text", resp)
+	}
+
+	var envelope responsesEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		return "", fmt.Errorf("decode image extraction response: %w", err)
+	}
+	text := strings.TrimSpace(envelope.Text())
+	if text == "" {
+		return "", fmt.Errorf("image extraction response did not include text output")
+	}
+	return text, nil
 }
 
 func (c *OpenAIClient) Transcribe(ctx context.Context, fileName string, contentType string, audio []byte) (string, error) {

@@ -1,7 +1,12 @@
 package services
 
 import (
+	"bytes"
 	"context"
+	"mime/multipart"
+	"net/http"
+	"net/textproto"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +17,10 @@ import (
 )
 
 type fakeAI struct {
-	followUp bool
+	followUp      bool
+	imageText     string
+	imageFileName string
+	imageMIME     string
 }
 
 func (f fakeAI) GenerateBaseline(ctx context.Context, input BaselineInput) (BaselinePlan, error) {
@@ -56,6 +64,13 @@ func (f fakeAI) GenerateFinalReport(ctx context.Context, input FinalReportInput)
 		EnglishScore:   english,
 		OverallScore:   overall,
 	}, nil
+}
+
+func (f fakeAI) ExtractImageText(ctx context.Context, fileName string, contentType string, image []byte) (string, error) {
+	if f.imageText != "" {
+		return f.imageText, nil
+	}
+	return "Extracted JD image text with Kubernetes and Terraform requirements.", nil
 }
 
 func (f fakeAI) Transcribe(ctx context.Context, fileName string, contentType string, audio []byte) (string, error) {
@@ -213,6 +228,43 @@ func TestDocumentValidation(t *testing.T) {
 	if text != "# hello" {
 		t.Fatalf("unexpected text: %q", text)
 	}
+	if _, err := ExtractDocumentText("cv.pdf", []byte("not actually a pdf")); err == nil || !strings.Contains(err.Error(), "does not look like a valid PDF") {
+		t.Fatalf("expected friendly invalid PDF error, got %v", err)
+	}
+	normalized, err := normalizePDFData("cv.pdf", []byte("prefix\n%PDF-1.7\nbody"))
+	if err != nil {
+		t.Fatalf("expected prefixed PDF data to normalize: %v", err)
+	}
+	if !bytes.HasPrefix(normalized, []byte("%PDF-")) {
+		t.Fatalf("expected normalized PDF to start with header, got %q", string(normalized[:min(len(normalized), 8)]))
+	}
+}
+
+func TestUploadPolicies(t *testing.T) {
+	ctx := context.Background()
+	jdImage := uploadHeader(t, "jd_file", "job.png", "image/png", []byte{0x89, 'P', 'N', 'G'})
+	jdText, err := ExtractJDUploadText(ctx, fakeAI{imageText: "SRE job from screenshot"}, jdImage, "")
+	if err != nil {
+		t.Fatalf("expected JD image to be accepted: %v", err)
+	}
+	if jdText != "SRE job from screenshot" {
+		t.Fatalf("unexpected JD image text: %q", jdText)
+	}
+
+	jdTXT := uploadHeader(t, "jd_file", "job.txt", "text/plain", []byte("SRE role"))
+	if _, err := ExtractJDUploadText(ctx, fakeAI{}, jdTXT, ""); err != nil {
+		t.Fatalf("expected JD txt to be accepted: %v", err)
+	}
+
+	cvMD := uploadHeader(t, "cv_file", "cv.md", "text/markdown", []byte("# CV"))
+	if _, err := ExtractCVUploadText(ctx, cvMD, ""); err != nil {
+		t.Fatalf("expected CV md to be accepted: %v", err)
+	}
+
+	cvTXT := uploadHeader(t, "cv_file", "cv.txt", "text/plain", []byte("CV"))
+	if _, err := ExtractCVUploadText(ctx, cvTXT, ""); err == nil {
+		t.Fatal("expected CV txt upload to be rejected")
+	}
 }
 
 func TestParseJSONPayloadFromFence(t *testing.T) {
@@ -225,6 +277,35 @@ func TestParseJSONPayloadFromFence(t *testing.T) {
 	if parsed.Name != "sre" {
 		t.Fatalf("unexpected name: %s", parsed.Name)
 	}
+}
+
+func uploadHeader(t *testing.T, field string, fileName string, contentType string, data []byte) *multipart.FileHeader {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="`+field+`"; filename="`+fileName+`"`)
+	header.Set("Content-Type", contentType)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		t.Fatalf("create multipart part: %v", err)
+	}
+	if _, err := part.Write(data); err != nil {
+		t.Fatalf("write multipart part: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "/upload", &body)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if err := req.ParseMultipartForm(maxDocumentBytes); err != nil {
+		t.Fatalf("parse multipart form: %v", err)
+	}
+	return req.MultipartForm.File[field][0]
 }
 
 func newTestService(t *testing.T, ai AIClient) *SessionService {

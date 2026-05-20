@@ -10,6 +10,7 @@ type AIClient interface {
 	GenerateBaseline(ctx context.Context, input BaselineInput) (BaselinePlan, error)
 	EvaluateAnswer(ctx context.Context, input TurnInput) (TurnEvaluation, error)
 	GenerateFinalReport(ctx context.Context, input FinalReportInput) (FinalReport, error)
+	ExtractImageText(ctx context.Context, fileName string, contentType string, image []byte) (string, error)
 	Transcribe(ctx context.Context, fileName string, contentType string, audio []byte) (string, error)
 	Synthesize(ctx context.Context, text string) (AudioResult, error)
 }

@@ -119,3 +119,37 @@ test("API rejects unsupported interview file types clearly", async ({ request })
   const body = await response.json();
   expect(body.error.message).toContain("unsupported file type");
 });
+
+test("API accepts JD image upload and rejects CV txt upload", async ({ request }) => {
+  const imageJD = await request.post(`${apiURL}/sessions`, {
+    multipart: {
+      mode: "interview",
+      jd_file: {
+        name: "jd-screenshot.png",
+        mimeType: "image/png",
+        buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      },
+      cv_text: "SRE candidate with Kubernetes, Terraform, and CI/CD experience.",
+    },
+  });
+  await expect(imageJD).toBeOK();
+  const imageBody = await imageJD.json();
+  expect(imageBody.current_question.question_text).toContain("Based on this role");
+  expect(imageBody.session.jd_text).toContain("Local fallback extracted JD image text");
+
+  const txtCV = await request.post(`${apiURL}/sessions`, {
+    multipart: {
+      mode: "interview",
+      jd_text: "DevOps role with Kubernetes and Terraform.",
+      cv_file: {
+        name: "cv.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("CV text should not be accepted as an upload."),
+      },
+    },
+  });
+  expect(txtCV.status()).toBe(400);
+  const txtCVBody = await txtCV.json();
+  expect(txtCVBody.error.message).toContain("CV file");
+  expect(txtCVBody.error.message).toContain(".md or .pdf");
+});
