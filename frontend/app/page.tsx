@@ -16,7 +16,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import {
   createSession,
   finalizeSession,
@@ -52,6 +52,7 @@ export default function Home() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const reportRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     void refreshHistory();
@@ -70,6 +71,12 @@ export default function Home() {
   const lastAnswered = useMemo(() => {
     return session?.turns?.filter((turn) => turn.answered_at).at(-1);
   }, [session]);
+
+  useEffect(() => {
+    if (session?.status === "completed" && report) {
+      reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [session?.status, report]);
 
   async function refreshHistory() {
     try {
@@ -105,6 +112,7 @@ export default function Home() {
     setSession(envelope.session);
     setCurrentQuestion(envelope.current_question);
     setTypedAnswer("");
+    setReport(null);
     if (envelope.session.status === "completed") {
       const final = await getReport(envelope.session.id);
       setReport(final);
@@ -230,6 +238,7 @@ export default function Home() {
       const envelope = await getSession(id);
       setSession(envelope.session);
       setCurrentQuestion(envelope.current_question);
+      setReport(null);
       setReport(envelope.session.status === "completed" ? await getReport(id) : null);
     } catch (err) {
       setError(messageFromError(err));
@@ -430,11 +439,23 @@ export default function Home() {
                 </section>
               )}
 
-              {lastAnswered && <TurnFeedback turn={lastAnswered} />}
+              {session.status === "completed" && (
+                report ? (
+                  <ReportView report={report} turns={session.turns ?? []} ref={reportRef} />
+                ) : (
+                  <section className="report" data-testid="final-report-loading">
+                    <div className="mb-3 flex items-center gap-2">
+                      <Clock className="h-5 w-5 text-ocean" aria-hidden="true" />
+                      <h3 className="text-2xl font-semibold">Preparing final report</h3>
+                    </div>
+                    <p className="text-steel">The interview summary and recommendations are loading.</p>
+                  </section>
+                )
+              )}
+
+              {lastAnswered && session.status === "active" && <TurnFeedback turn={lastAnswered} />}
 
               <TopicProgress session={session} />
-
-              {report && <ReportView report={report} turns={session.turns ?? []} />}
             </div>
           )}
         </section>
@@ -538,13 +559,16 @@ type QAReview = {
   feedback?: Turn["feedback"];
 };
 
-function ReportView({ report, turns }: { report: FinalReport; turns: Turn[] }) {
+const ReportView = forwardRef<HTMLElement, { report: FinalReport; turns: Turn[] }>(function ReportView(
+  { report, turns },
+  ref,
+) {
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const reviews = buildQAReviews(report, turns);
   const selectedReview = reviews.find((review) => review.id === selectedReviewId);
 
   return (
-    <section className="report" data-testid="final-report">
+    <section className="report" data-testid="final-report" ref={ref}>
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <h3 className="text-2xl font-semibold">Final report</h3>
         <Score label="Overall" value={report.overall_score} />
@@ -583,7 +607,7 @@ function ReportView({ report, turns }: { report: FinalReport; turns: Turn[] }) {
       {selectedReview && <QAReviewModal review={selectedReview} onClose={() => setSelectedReviewId(null)} />}
     </section>
   );
-}
+});
 
 function QAReviewModal({ review, onClose }: { review: QAReview; onClose: () => void }) {
   return (
