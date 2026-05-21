@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"practice-speaking/backend/internal/config"
 	"practice-speaking/backend/internal/models"
@@ -67,6 +68,43 @@ func TestCreatePracticeSessionAPI(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "How would you define an SLO?") {
 		t.Fatalf("response did not include first question: %s", rec.Body.String())
+	}
+}
+
+func TestCreateSessionCustomDurationAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newTestHandler(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions", strings.NewReader("mode=practice&duration_minutes=12"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var envelope services.SessionEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if got := envelope.Session.DeadlineAt.Sub(envelope.Session.StartedAt); got != 12*time.Minute {
+		t.Fatalf("duration = %s, want 12m", got)
+	}
+}
+
+func TestCreateSessionRejectsInvalidDurationAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newTestHandler(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions", strings.NewReader("mode=practice&duration_minutes=abc"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "duration_minutes") {
+		t.Fatalf("response did not mention duration_minutes: %s", rec.Body.String())
 	}
 }
 

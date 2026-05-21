@@ -20,7 +20,9 @@ test("practice mode supports typed answer, follow-up, scoring, and final report"
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "SRE interview room" })).toBeVisible();
+  await expect(page.getByTestId("duration-minutes")).toHaveValue("20");
   await page.getByRole("button", { name: "Practice", exact: true }).click();
+  await expect(page.getByTestId("duration-minutes")).toHaveValue("10");
   await page.getByTestId("start-session").click();
 
   await expect(page.getByText("Live session")).toBeVisible();
@@ -89,7 +91,8 @@ test("interview mode accepts JD and CV files and generates role-fit questions", 
 
   await expect(page.getByText("Live session")).toBeVisible();
   await expect(page.getByText("interview mode")).toBeVisible();
-  await expect(page.getByTestId("current-question")).toContainText("Based on this role");
+  await expect(page.getByTestId("current-question")).toContainText("Based on your CV");
+  await expect(page.getByText("CV experience: owned project")).toBeVisible();
 
   await page.getByTestId("typed-answer").fill(technicalAnswer);
   await page.getByTestId("submit-text").click();

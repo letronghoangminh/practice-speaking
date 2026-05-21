@@ -17,9 +17,13 @@ import (
 )
 
 const (
-	interviewDuration = 20 * time.Minute
-	practiceDuration  = 10 * time.Minute
-	maxTopicQuestions = 3
+	defaultInterviewMinutes = 20
+	defaultPracticeMinutes  = 10
+	minSessionMinutes       = 1
+	maxSessionMinutes       = 120
+	interviewDuration       = defaultInterviewMinutes * time.Minute
+	practiceDuration        = defaultPracticeMinutes * time.Minute
+	maxTopicQuestions       = 3
 )
 
 type SessionService struct {
@@ -30,11 +34,12 @@ type SessionService struct {
 }
 
 type CreateSessionInput struct {
-	Mode   string
-	JDText string
-	CVText string
-	JDFile *multipart.FileHeader
-	CVFile *multipart.FileHeader
+	Mode            string
+	DurationMinutes int
+	JDText          string
+	CVText          string
+	JDFile          *multipart.FileHeader
+	CVFile          *multipart.FileHeader
 }
 
 func NewSessionService(db *gorm.DB, cache *redis.Client, ai AIClient) *SessionService {
@@ -69,14 +74,15 @@ func (s *SessionService) CreateSession(ctx context.Context, input CreateSessionI
 		return SessionEnvelope{}, fmt.Errorf("generate baseline: %w", err)
 	}
 	plan = normalizeBaseline(plan)
+	plan = ensureInterviewExperienceTopics(plan, BaselineInput{Mode: mode, JDText: jdText, CVText: cvText})
 	if len(plan.Topics) == 0 {
 		return SessionEnvelope{}, fmt.Errorf("generate baseline: no topics returned")
 	}
 
 	now := s.now().UTC()
-	duration := practiceDuration
-	if mode == models.SessionModeInterview {
-		duration = interviewDuration
+	duration, err := sessionDuration(mode, input.DurationMinutes)
+	if err != nil {
+		return SessionEnvelope{}, err
 	}
 
 	session := models.Session{
@@ -587,4 +593,17 @@ func deref(value *uint, fallback uint) uint {
 		return fallback
 	}
 	return *value
+}
+
+func sessionDuration(mode string, requestedMinutes int) (time.Duration, error) {
+	if requestedMinutes == 0 {
+		if mode == models.SessionModeInterview {
+			return interviewDuration, nil
+		}
+		return practiceDuration, nil
+	}
+	if requestedMinutes < minSessionMinutes || requestedMinutes > maxSessionMinutes {
+		return 0, validationError("duration_minutes must be between %d and %d", minSessionMinutes, maxSessionMinutes)
+	}
+	return time.Duration(requestedMinutes) * time.Minute, nil
 }

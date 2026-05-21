@@ -153,6 +153,92 @@ func TestSessionDurations(t *testing.T) {
 	if got := interview.Session.DeadlineAt.Sub(interview.Session.StartedAt); got != 20*time.Minute {
 		t.Fatalf("interview duration = %s, want 20m", got)
 	}
+
+	customPractice, err := service.CreateSession(ctx, CreateSessionInput{Mode: models.SessionModePractice, DurationMinutes: 12})
+	if err != nil {
+		t.Fatalf("create custom practice session: %v", err)
+	}
+	if got := customPractice.Session.DeadlineAt.Sub(customPractice.Session.StartedAt); got != 12*time.Minute {
+		t.Fatalf("custom practice duration = %s, want 12m", got)
+	}
+
+	customInterview, err := service.CreateSession(ctx, CreateSessionInput{
+		Mode:            models.SessionModeInterview,
+		DurationMinutes: 35,
+		JDText:          "DevOps role with Kubernetes and Terraform.",
+		CVText:          "Candidate with SRE experience.",
+	})
+	if err != nil {
+		t.Fatalf("create custom interview session: %v", err)
+	}
+	if got := customInterview.Session.DeadlineAt.Sub(customInterview.Session.StartedAt); got != 35*time.Minute {
+		t.Fatalf("custom interview duration = %s, want 35m", got)
+	}
+}
+
+func TestSessionDurationValidation(t *testing.T) {
+	service := newTestService(t, fakeAI{})
+	ctx := context.Background()
+
+	if _, err := service.CreateSession(ctx, CreateSessionInput{Mode: models.SessionModePractice, DurationMinutes: -1}); err == nil || !strings.Contains(err.Error(), "duration_minutes") {
+		t.Fatalf("expected invalid duration error, got %v", err)
+	}
+	if _, err := service.CreateSession(ctx, CreateSessionInput{Mode: models.SessionModePractice, DurationMinutes: 121}); err == nil || !strings.Contains(err.Error(), "duration_minutes") {
+		t.Fatalf("expected invalid duration error, got %v", err)
+	}
+}
+
+func TestInterviewAddsCVExperienceTopics(t *testing.T) {
+	service := newTestService(t, fakeAI{})
+	ctx := context.Background()
+	envelope, err := service.CreateSession(ctx, CreateSessionInput{
+		Mode:   models.SessionModeInterview,
+		JDText: "DevOps role with Kubernetes and Terraform.",
+		CVText: "WORK EXPERIENCE\n• Designed Kubernetes platform work for CI/CD migration and incident response automation, reducing release risk by 40%.\n• Built Terraform modules for production clusters and improved deployment consistency.",
+	})
+	if err != nil {
+		t.Fatalf("create interview session: %v", err)
+	}
+
+	experienceCount := 0
+	for _, topic := range envelope.Session.Topics {
+		if topic.Category == "cv-experience" {
+			experienceCount++
+		}
+	}
+	if experienceCount < 2 {
+		t.Fatalf("expected at least 2 CV experience topics, got %d: %#v", experienceCount, envelope.Session.Topics)
+	}
+	if envelope.CurrentQuestion == nil {
+		t.Fatal("expected current question")
+	}
+	if envelope.Session.Topics[0].Category != "cv-experience" {
+		t.Fatalf("first topic category = %q, want cv-experience", envelope.Session.Topics[0].Category)
+	}
+	if !strings.Contains(envelope.CurrentQuestion.QuestionText, "Based on your CV") {
+		t.Fatalf("first question should clearly reference the CV, got %q", envelope.CurrentQuestion.QuestionText)
+	}
+	if !strings.Contains(envelope.CurrentQuestion.QuestionText, "Kubernetes platform work") {
+		t.Fatalf("first question should include a CV claim, got %q", envelope.CurrentQuestion.QuestionText)
+	}
+}
+
+func TestExtractCVExperienceClaimsIgnoresPDFHeaderAndSummaryNoise(t *testing.T) {
+	cvText := `Le Trong Hoang MinhDevOps Engineer+84943707317✉candidate@example.comhttps://hackmd.io/@profileSUMMARYSite Reliability Engineer / DevOps Engineer with 5+ years of experience designing secure, scalable cloud-native platforms on AWS and GCP.WORK EXPERIENCEShopeeJul 2025-PresentSite Reliability Engineer | Ho Chi Minh City, VietnamMain responsibilities:•Designed and implemented a SecOps platform for Vietnam product infrastructure: enforcing runtime security across Kubernetes clusters and WAF layers, blocking 300+ malicious attacks per month.•Designed and built SRE agent and AIOps/ChatOps integration with platform engineering, reducing SRE MTTR by ~70%.Technologies used: GCP, Kubernetes, Terraform, Gitlab CI, ArgoCD, AIOps, Victoria Metrics, Grafana.EDUCATIONDa Nang University`
+
+	claims := extractCVExperienceClaims(cvText, 2)
+	if len(claims) != 2 {
+		t.Fatalf("claims = %#v, want 2", claims)
+	}
+	joined := strings.Join(claims, "\n")
+	for _, bad := range []string{"hackmd", "@profile", "SUMMARY", "5+ years of experience"} {
+		if strings.Contains(joined, bad) {
+			t.Fatalf("claims should not contain header or summary noise %q: %#v", bad, claims)
+		}
+	}
+	if !strings.Contains(joined, "SecOps platform") || !strings.Contains(joined, "SRE agent") {
+		t.Fatalf("claims should include concrete work bullets, got %#v", claims)
+	}
 }
 
 func TestSkipCurrentQuestionMovesTopicAndDoesNotScore(t *testing.T) {
@@ -237,6 +323,17 @@ func TestDocumentValidation(t *testing.T) {
 	}
 	if !bytes.HasPrefix(normalized, []byte("%PDF-")) {
 		t.Fatalf("expected normalized PDF to start with header, got %q", string(normalized[:min(len(normalized), 8)]))
+	}
+
+	pdfText := normalizeExtractedPDFText("SUMMARYSite Reliability Engineer.WORK EXPERIENCEShopeeMain responsibilities:•Designed Kubernetes clustersand WAF automation.Technologies used: Kubernetes.")
+	if !strings.Contains(pdfText, "\n• Designed Kubernetes clusters and WAF automation.") {
+		t.Fatalf("expected PDF text normalization to preserve bullet boundaries, got %q", pdfText)
+	}
+	if strings.Contains(pdfText, "SUMMARYSite") || strings.Contains(pdfText, "responsibilities:•") {
+		t.Fatalf("expected PDF text normalization to separate glued sections, got %q", pdfText)
+	}
+	if strings.Contains(pdfText, "clustersand") {
+		t.Fatalf("expected PDF text normalization to repair common joined words, got %q", pdfText)
 	}
 }
 

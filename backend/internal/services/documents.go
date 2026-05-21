@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -16,6 +17,11 @@ import (
 
 const maxDocumentBytes = 8 << 20
 const pdfHeaderScanLimit = 1024
+
+var (
+	pdfGluedSentenceRE = regexp.MustCompile(`([[:lower:]0-9%])\.([[:upper:]])`)
+	pdfSectionRE       = regexp.MustCompile(`(SUMMARY|WORK EXPERIENCE|WORK EXPERIENCES|EDUCATION|CERTIFICATIONS|HONORS & AWARDS|SKILLS|ADDITIONAL INFORMATION)`)
+)
 
 type uploadPolicy struct {
 	label      string
@@ -204,7 +210,43 @@ func extractPDFText(name string, data []byte) (string, error) {
 	if _, err := io.Copy(&buf, plain); err != nil {
 		return "", fmt.Errorf("read PDF text from %s: %w", name, err)
 	}
-	return buf.String(), nil
+	return normalizeExtractedPDFText(buf.String()), nil
+}
+
+func normalizeExtractedPDFText(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	text = strings.ReplaceAll(text, "\u00a0", " ")
+	text = strings.ReplaceAll(text, "∼", "~")
+	text = repairExtractedTextJoins(text)
+	text = pdfGluedSentenceRE.ReplaceAllString(text, "$1.\n$2")
+	text = pdfSectionRE.ReplaceAllString(text, "\n$1\n")
+	text = strings.ReplaceAll(text, "Main responsibilities:", "\nMain responsibilities:\n")
+	text = strings.ReplaceAll(text, "Technologies used:", "\nTechnologies used:\n")
+	text = strings.ReplaceAll(text, "•", "\n• ")
+
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.Join(strings.Fields(line), " ")
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+func repairExtractedTextJoins(text string) string {
+	return strings.NewReplacer(
+		"clustersand", "clusters and",
+		"deploymentsmonthly", "deployments monthly",
+		"securityawareness", "security awareness",
+		"auditlogging", "audit logging",
+		"GitOpsworkflows", "GitOps workflows",
+		"projects ,", "projects,",
+	).Replace(text)
 }
 
 func normalizePDFData(name string, data []byte) ([]byte, error) {

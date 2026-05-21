@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -385,7 +386,7 @@ func baselineSystemPrompt() string {
 }
 
 func baselineUserPrompt(input BaselineInput) string {
-	topicGuidance := "Create 8 to 12 role-aligned topics from the JD and CV. Cover theory, practical operations, and scenario questions."
+	topicGuidance := "Create 8 to 12 role-aligned topics from the JD and CV. Cover theory, practical operations, scenario questions, and at least 2 experience-based questions from the candidate CV. Ask about real projects, incidents, tradeoffs, ownership, and measurable outcomes the candidate claims in the CV."
 	if input.Mode == models.SessionModePractice {
 		topicGuidance = "Create 12 to 16 varied DevOps, SRE, and platform engineering topics. Include Terraform, Helm, Kubernetes, cloud operations, CI/CD, GitOps, monitoring, logging, incident response, SLOs, security, and platform engineering."
 	}
@@ -719,6 +720,297 @@ func normalizeBaseline(plan BaselinePlan) BaselinePlan {
 		out = append(out, topic)
 	}
 	return BaselinePlan{Topics: out}
+}
+
+func ensureInterviewExperienceTopics(plan BaselinePlan, input BaselineInput) BaselinePlan {
+	if input.Mode != models.SessionModeInterview || strings.TrimSpace(input.CVText) == "" {
+		return plan
+	}
+
+	cvTopics := buildCVExperienceTopics(input.CVText)
+	topics := make([]BaselineTopic, 0, len(plan.Topics)+len(cvTopics))
+	topics = append(topics, cvTopics...)
+	for _, topic := range plan.Topics {
+		if isExplicitCVExperienceTopic(topic) {
+			continue
+		}
+		topics = append(topics, topic)
+	}
+	return BaselinePlan{Topics: topics}
+}
+
+func buildCVExperienceTopics(cvText string) []BaselineTopic {
+	claims := extractCVExperienceClaims(cvText, 2)
+	for len(claims) < 2 {
+		claims = append(claims, "your DevOps, SRE, or platform engineering work")
+	}
+	return []BaselineTopic{
+		{
+			Title:           "CV experience: owned project",
+			Category:        "cv-experience",
+			QuestionType:    models.QuestionTypeScenario,
+			InitialQuestion: fmt.Sprintf("Based on your CV, you mention %s. Walk me through the project: what problem were you solving, what did you personally own, what tradeoffs did you make, and what measurable result did you achieve?", quoteCVClaim(claims[0])),
+		},
+		{
+			Title:           "CV experience: production impact",
+			Category:        "cv-experience",
+			QuestionType:    models.QuestionTypePractice,
+			InitialQuestion: fmt.Sprintf("Based on your CV, you also mention %s. Tell me about a difficult production or delivery challenge behind this work, how you handled it, and how you proved the outcome was successful.", quoteCVClaim(claims[1])),
+		},
+	}
+}
+
+type cvClaim struct {
+	text  string
+	score int
+	order int
+}
+
+func extractCVExperienceClaims(cvText string, limit int) []string {
+	focusedText := focusCVExperienceText(normalizeCVTextForClaims(cvText))
+	rawLines := strings.FieldsFunc(focusedText, func(r rune) bool {
+		return r == '\n' || r == ';' || r == '•'
+	})
+	candidates := make([]cvClaim, 0, len(rawLines))
+	seen := map[string]bool{}
+	for idx, raw := range rawLines {
+		for _, text := range splitCVClaimLine(cleanCVClaim(raw)) {
+			if !isUsableCVExperienceClaim(text) {
+				continue
+			}
+			if len(strings.Fields(text)) < 4 {
+				continue
+			}
+			key := strings.ToLower(text)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			score := scoreCVClaim(text)
+			if score == 0 {
+				score = 1
+			}
+			candidates = append(candidates, cvClaim{text: trimCVClaim(text), score: score, order: idx})
+		}
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].score == candidates[j].score {
+			return candidates[i].order < candidates[j].order
+		}
+		return candidates[i].score > candidates[j].score
+	})
+
+	out := make([]string, 0, limit)
+	for _, candidate := range candidates {
+		out = append(out, candidate.text)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out
+}
+
+func normalizeCVTextForClaims(value string) string {
+	value = repairExtractedTextJoins(value)
+	replacements := []string{
+		"\r\n", "\n",
+		"\r", "\n",
+		"\u00a0", " ",
+		"∼", "~",
+		"SUMMARY", "\nSUMMARY\n",
+		"WORK EXPERIENCE", "\nWORK EXPERIENCE\n",
+		"EDUCATION", "\nEDUCATION\n",
+		"CERTIFICATIONS", "\nCERTIFICATIONS\n",
+		"HONORS & AWARDS", "\nHONORS & AWARDS\n",
+		"SKILLS", "\nSKILLS\n",
+		"ADDITIONAL INFORMATION", "\nADDITIONAL INFORMATION\n",
+		"Main responsibilities:", "\nMain responsibilities:\n",
+		"Technologies used:", "\nTechnologies used:\n",
+		"•", "\n• ",
+	}
+	value = strings.NewReplacer(replacements...).Replace(value)
+	return strings.TrimSpace(value)
+}
+
+func focusCVExperienceText(value string) string {
+	lower := strings.ToLower(value)
+	start := strings.Index(lower, "work experience")
+	if start < 0 {
+		start = strings.Index(lower, "experience")
+	}
+	if start >= 0 {
+		value = value[start:]
+		lower = strings.ToLower(value)
+	}
+	end := len(value)
+	for _, marker := range []string{"\neducation", "\ncertifications", "\nhonors & awards", "\nskills", "\nadditional information"} {
+		if idx := strings.Index(lower, marker); idx >= 0 && idx < end {
+			end = idx
+		}
+	}
+	return strings.TrimSpace(value[:end])
+}
+
+func cleanCVClaim(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimLeft(value, " \t-*•0123456789.)")
+	value = strings.Join(strings.Fields(value), " ")
+	value = strings.TrimPrefix(value, "Main responsibilities:")
+	return strings.TrimSpace(value)
+}
+
+func splitCVClaimLine(value string) []string {
+	if len(value) <= 220 {
+		return []string{value}
+	}
+	parts := strings.Split(value, ".")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = cleanCVClaim(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	if len(out) == 0 {
+		return []string{value}
+	}
+	return out
+}
+
+func isUsableCVExperienceClaim(value string) bool {
+	value = strings.TrimSpace(value)
+	words := strings.Fields(value)
+	if len(words) < 6 {
+		return false
+	}
+	lower := strings.ToLower(value)
+	blocked := []string{
+		"http://", "https://", "github:", "personal blogs", "gmail", "@", "summary",
+		"work experience", "main responsibilities", "technologies used", "education",
+		"certification", "honors & awards", "skills", "programming languages",
+		"orchestration tools", "cloud platforms", "additional information",
+	}
+	for _, marker := range blocked {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+	return hasCVActionVerb(lower) && scoreCVClaim(value) >= 3
+}
+
+func scoreCVClaim(value string) int {
+	text := strings.ToLower(value)
+	score := 0
+	keywords := []string{
+		"devops", "sre", "platform", "kubernetes", "k8s", "terraform", "helm", "cloud",
+		"aws", "gcp", "azure", "ci/cd", "cicd", "pipeline", "jenkins", "gitlab",
+		"github actions", "argocd", "argo cd", "monitoring", "observability", "prometheus",
+		"grafana", "datadog", "logging", "incident", "on-call", "automation", "docker",
+		"ansible", "linux", "migration", "scal", "reliability", "availability",
+		"secops", "waf", "mttr", "aiops", "chatops", "slo", "rbac", "oidc", "soc2",
+		"eks", "gke", "fargate", "cost", "vulnerability", "gitops",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(text, keyword) {
+			score += 2
+		}
+	}
+	if strings.ContainsAny(text, "0123456789") {
+		score++
+	}
+	if hasCVActionVerb(text) {
+		score += 2
+	}
+	return score
+}
+
+func hasCVActionVerb(text string) bool {
+	verbs := []string{
+		"designed", "implemented", "built", "operated", "optimized", "led",
+		"contributed", "maintained", "researched", "integrated", "enforced",
+		"handled", "reduced", "improved", "owned", "defined", "scaling",
+	}
+	for _, verb := range verbs {
+		if strings.Contains(text, verb) {
+			return true
+		}
+	}
+	return false
+}
+
+func trimCVClaim(value string) string {
+	value = repairExtractedTextJoins(strings.TrimSpace(value))
+	if len(value) <= 170 {
+		return value
+	}
+	if compact := compactLongCVClaim(value); compact != "" {
+		return compact
+	}
+	words := strings.Fields(value)
+	var builder strings.Builder
+	for _, word := range words {
+		if builder.Len()+len(word)+1 > 167 {
+			break
+		}
+		if builder.Len() > 0 {
+			builder.WriteByte(' ')
+		}
+		builder.WriteString(word)
+	}
+	if builder.Len() == 0 {
+		return value[:167] + "..."
+	}
+	return builder.String() + "..."
+}
+
+func compactLongCVClaim(value string) string {
+	parts := strings.Split(value, ",")
+	if len(parts) < 2 {
+		return ""
+	}
+	first := strings.TrimSpace(parts[0])
+	if len(first) >= 70 && len(first) <= 170 {
+		return first
+	}
+	var builder strings.Builder
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		nextLen := builder.Len() + len(part)
+		if builder.Len() > 0 {
+			nextLen += 2
+		}
+		if nextLen > 170 {
+			break
+		}
+		if builder.Len() > 0 {
+			builder.WriteString(", ")
+		}
+		builder.WriteString(part)
+	}
+	if builder.Len() >= 70 {
+		return builder.String()
+	}
+	return ""
+}
+
+func quoteCVClaim(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "your DevOps, SRE, or platform engineering work" {
+		return value
+	}
+	return `"` + value + `"`
+}
+
+func isExplicitCVExperienceTopic(topic BaselineTopic) bool {
+	text := strings.ToLower(topic.Title + " " + topic.Category + " " + topic.InitialQuestion)
+	return strings.Contains(text, "cv-experience") ||
+		strings.Contains(text, "based on your cv") ||
+		strings.Contains(text, "from your cv") ||
+		strings.Contains(text, "candidate cv")
 }
 
 func normalizeQuestionType(value string) string {

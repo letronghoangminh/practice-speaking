@@ -33,8 +33,15 @@ import {
   Turn,
 } from "@/lib/api";
 
+const DEFAULT_INTERVIEW_MINUTES = 20;
+const DEFAULT_PRACTICE_MINUTES = 10;
+const MIN_SESSION_MINUTES = 1;
+const MAX_SESSION_MINUTES = 120;
+
 export default function Home() {
   const [mode, setMode] = useState<Mode>("interview");
+  const [interviewMinutes, setInterviewMinutes] = useState(DEFAULT_INTERVIEW_MINUTES);
+  const [practiceMinutes, setPracticeMinutes] = useState(DEFAULT_PRACTICE_MINUTES);
   const [jdText, setJdText] = useState("");
   const [cvText, setCvText] = useState("");
   const [jdFile, setJdFile] = useState<File | null>(null);
@@ -72,6 +79,8 @@ export default function Home() {
     return session?.turns?.filter((turn) => turn.answered_at).at(-1);
   }, [session]);
 
+  const selectedDurationMinutes = mode === "interview" ? interviewMinutes : practiceMinutes;
+
   useEffect(() => {
     if (session?.status === "completed" && report) {
       reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -95,6 +104,7 @@ export default function Home() {
     try {
       const form = new FormData();
       form.append("mode", mode);
+      form.append("duration_minutes", String(clampDuration(selectedDurationMinutes)));
       if (jdFile) form.append("jd_file", jdFile);
       if (cvFile) form.append("cv_file", cvFile);
       if (jdText.trim()) form.append("jd_text", jdText.trim());
@@ -279,6 +289,17 @@ export default function Home() {
                   Practice
                 </button>
               </div>
+
+              <DurationInput
+                value={selectedDurationMinutes}
+                onChange={(value) => {
+                  if (mode === "interview") {
+                    setInterviewMinutes(value);
+                  } else {
+                    setPracticeMinutes(value);
+                  }
+                }}
+              />
 
               {mode === "interview" && (
                 <div className="space-y-3">
@@ -488,6 +509,28 @@ function FileInput({
         accept={accept}
         onChange={(event) => onChange(event.target.files?.[0] ?? null)}
       />
+    </label>
+  );
+}
+
+function DurationInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="block space-y-2">
+      <span className="label">Duration</span>
+      <span className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2">
+        <Clock className="h-4 w-4 text-ocean" aria-hidden="true" />
+        <input
+          className="w-20 bg-transparent text-sm font-semibold text-ink outline-none"
+          data-testid="duration-minutes"
+          type="number"
+          min={MIN_SESSION_MINUTES}
+          max={MAX_SESSION_MINUTES}
+          step={1}
+          value={value}
+          onChange={(event) => onChange(clampDuration(Number(event.target.value)))}
+        />
+        <span className="text-sm font-medium text-steel">minutes</span>
+      </span>
     </label>
   );
 }
@@ -737,6 +780,11 @@ function summarizeText(value: string) {
     return value.trim() || "No summary available.";
   }
   return `${words.slice(0, 34).join(" ")}...`;
+}
+
+function clampDuration(value: number) {
+  if (!Number.isFinite(value)) return MIN_SESSION_MINUTES;
+  return Math.min(MAX_SESSION_MINUTES, Math.max(MIN_SESSION_MINUTES, Math.round(value)));
 }
 
 function messageFromError(err: unknown) {

@@ -80,6 +80,24 @@ test("API skip question advances topic without scoring the skipped turn", async 
   expect(skippedTurns).toHaveLength(1);
 });
 
+test("API accepts custom session duration", async ({ request }) => {
+  const practice = await request.post(`${apiURL}/sessions`, {
+    form: { mode: "practice", duration_minutes: "12" },
+  });
+  await expect(practice).toBeOK();
+  const practiceBody = await practice.json();
+  const durationMs =
+    new Date(practiceBody.session.deadline_at).getTime() - new Date(practiceBody.session.started_at).getTime();
+  expect(durationMs).toBe(12 * 60 * 1000);
+
+  const invalid = await request.post(`${apiURL}/sessions`, {
+    form: { mode: "practice", duration_minutes: "121" },
+  });
+  expect(invalid.status()).toBe(400);
+  const invalidBody = await invalid.json();
+  expect(invalidBody.error.message).toContain("duration_minutes");
+});
+
 test("API audio answer endpoint works in deterministic fallback mode", async ({ request }) => {
   const created = await request.post(`${apiURL}/sessions`, {
     form: { mode: "practice" },
@@ -134,7 +152,8 @@ test("API accepts JD image upload and rejects CV txt upload", async ({ request }
   });
   await expect(imageJD).toBeOK();
   const imageBody = await imageJD.json();
-  expect(imageBody.current_question.question_text).toContain("Based on this role");
+  expect(imageBody.current_question.question_text).toContain("Based on your CV");
+  expect(imageBody.session.topics[0].category).toBe("cv-experience");
   expect(imageBody.session.jd_text).toContain("Local fallback extracted JD image text");
 
   const txtCV = await request.post(`${apiURL}/sessions`, {

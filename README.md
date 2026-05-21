@@ -32,6 +32,8 @@ The backend is available at [http://localhost:18080/api/v1](http://localhost:180
 If `OPENAI_API_KEY` is empty, the API runs with deterministic local fallbacks so the app can still be explored.
 
 Interview uploads support JD files as `.txt`, `.md`, `.pdf`, `.png`, `.jpg`, `.jpeg`, or `.webp`; CV uploads support `.md` and `.pdf`.
+Session duration can be set per run from the start form. Defaults are 20 minutes for Interview mode and 10 minutes for Practice mode.
+Interview sessions begin with explicit CV-experience questions before moving into JD-aligned technical topics.
 
 ## Local Development
 

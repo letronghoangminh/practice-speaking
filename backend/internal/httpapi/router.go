@@ -44,12 +44,18 @@ func (r *Router) health(c *gin.Context) {
 
 func (r *Router) createSession(c *gin.Context) {
 	var jdFile, cvFile = optionalFile(c, "jd_file"), optionalFile(c, "cv_file")
+	durationMinutes, err := parseOptionalInt(c.PostForm("duration_minutes"), "duration_minutes")
+	if err != nil {
+		writeError(c, err)
+		return
+	}
 	envelope, err := r.service.CreateSession(c.Request.Context(), services.CreateSessionInput{
-		Mode:   c.PostForm("mode"),
-		JDText: c.PostForm("jd_text"),
-		CVText: c.PostForm("cv_text"),
-		JDFile: jdFile,
-		CVFile: cvFile,
+		Mode:            c.PostForm("mode"),
+		DurationMinutes: durationMinutes,
+		JDText:          c.PostForm("jd_text"),
+		CVText:          c.PostForm("cv_text"),
+		JDFile:          jdFile,
+		CVFile:          cvFile,
 	})
 	if err != nil {
 		writeError(c, err)
@@ -172,6 +178,18 @@ func (r *Router) finalizeSession(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, envelope)
+}
+
+func parseOptionalInt(raw string, field string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, services.AppError{Kind: services.ErrorKindValidation, Message: field + " must be a whole number"}
+	}
+	return value, nil
 }
 
 func optionalFile(c *gin.Context, name string) *multipart.FileHeader {
